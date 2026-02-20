@@ -1,0 +1,23 @@
+{
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "add-personal-guardian": "npx tsx recovery/personal-guardian/01-add-personal-guardian/index.ts",
+    "recovery-flow-personal-guardian": "npx tsx recovery/personal-guardian/02-recovery-flow-personal-guardian/index.ts",
+    "enable-email-sms-recovery": "npx tsx recovery/email-sms/01-enable-email-sms-recovery/index.ts",
+    "recovery-flow-email-sms": "npx tsx recovery/email-sms/02-recovery-flow-email-sms/index.ts",
+    "setup-alerts": "npx tsx recovery/shared/setup-alerts/index.ts",
+    "cancel-recovery": "npx tsx recovery/shared/cancel-recovery/index.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@tetherto/wdk-wallet-evm-erc-4337": "^1.0.0-beta.4",
+    "abstractionkit": "^0.2.30",
+    "dotenv": "^17.3.1",
+    "safe-recovery-service-sdk": "^0.0.4"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
