@@ -24,6 +24,10 @@ node dist/<example>/index.js   # run a compiled example
 Examples can also be run directly via tsx (no compile step):
 
 ```bash
+# UserOp submission examples
+npm run send-userop-sponsored       # sponsored gas via policy
+npm run send-userop-erc20           # gas paid in USDT (ERC-20)
+
 # Personal guardian path
 npm run add-personal-guardian                # 01 — set up guardians
 npm run recovery-flow-personal-guardian  # 02 — run recovery flow
@@ -42,6 +46,9 @@ npm run cancel-recovery             # cancel a pending recovery
 ## Project Structure
 
 ```
+send-userop/
+  01-sponsored-gas/   # UserOp with sponsored gas (isSponsored: true + policy ID)
+  02-erc20-gas/       # UserOp with ERC-20 gas payment (USDT via token paymaster)
 recovery/
   personal-guardian/
     01-add-personal-guardian/           # enable module, add 2 guardians (threshold 2)

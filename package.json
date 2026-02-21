@@ -7,7 +7,9 @@
     "enable-email-sms-recovery": "npx tsx recovery/email-sms/01-enable-email-sms-recovery/index.ts",
     "recovery-flow-email-sms": "npx tsx recovery/email-sms/02-recovery-flow-email-sms/index.ts",
     "setup-alerts": "npx tsx recovery/shared/setup-alerts/index.ts",
-    "cancel-recovery": "npx tsx recovery/shared/cancel-recovery/index.ts"
+    "cancel-recovery": "npx tsx recovery/shared/cancel-recovery/index.ts",
+    "send-userop-sponsored": "npx tsx send-userop/01-sponsored-gas/index.ts",
+    "send-userop-erc20-gas": "npx tsx send-userop/02-erc20-gas/index.ts"
   },
   "devDependencies": {
     "tsx": "^4.21.0",
@@ -18,6 +20,5 @@
     "abstractionkit": "^0.2.30",
     "dotenv": "^17.3.1",
     "safe-recovery-service-sdk": "^0.0.4"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  }
 }
