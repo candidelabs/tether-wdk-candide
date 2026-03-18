@@ -20,7 +20,7 @@ Credentials available from [dashboard.candide.dev](https://dashboard.candide.dev
 | Script | Gas mode | Command |
 |--------|----------|---------|
 | `send-userop/01-sponsored-gas` | Sponsored — paymaster covers all gas | `npm run send-userop-sponsored` |
-| `send-userop/02-erc20-gas` | ERC-20 (USDT) — gas deducted from token balance | `npm run send-userop-erc20` |
+| `send-userop/02-erc20-gas` | ERC-20 (USDT) — gas deducted from token balance | `npm run send-userop-erc20-gas` |
 
 > Get test USDT on Sepolia at [dashboard.candide.dev/faucet](https://dashboard.candide.dev/faucet)
 
