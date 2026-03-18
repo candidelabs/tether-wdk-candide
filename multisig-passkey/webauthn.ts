@@ -141,7 +141,7 @@ export class WebAuthnCredentials {
       origin: `https://${publicKey.rp.id}`,
     }
 
-    const userVerification = publicKey.userVerification ?? 'preferred'
+    const userVerification = publicKey.userVerification ?? UserVerificationRequirement.preferred
     const uvFlag = userVerification === UserVerificationRequirement.required ? 0x04 : 0x00
 
     const aaguid = Buffer.alloc(16, 0x42)
@@ -184,7 +184,7 @@ export class WebAuthnCredentials {
       origin: `https://${publicKey.rpId}`,
     }
 
-    const userVerification = publicKey.userVerification ?? 'preferred'
+    const userVerification = publicKey.userVerification ?? UserVerificationRequirement.preferred
     const uvFlag = userVerification === UserVerificationRequirement.required ? 0x04 : 0x00
 
     const authenticatorData = buildAuthenticatorData(publicKey.rpId, 0x01 | uvFlag, 0)
@@ -237,7 +237,7 @@ export function extractPublicKey(response: AuthenticatorAttestationResponse): { 
 
 export function extractClientDataFields(response: AuthenticatorAssertionResponse): string {
   const clientDataJSON = new TextDecoder('utf-8').decode(response.clientDataJSON)
-  const match = clientDataJSON.match(/^\{"type":"webauthn.get","challenge":"[A-Za-z0-9\-_]{43}",(.*)\}$/)
+  const match = clientDataJSON.match(/^\{"type":"webauthn.get","challenge":"[A-Za-z0-9\-_]+",(.*)\}$/)
 
   if (!match) {
     throw new Error('challenge not found in client data JSON')
