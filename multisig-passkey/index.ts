@@ -5,23 +5,26 @@
  * then sending a UserOperation signed solely by the passkey.
  *
  * Flow:
- *   Phase A — Setup (via WDK, threshold stays at 1):
+ *   Phase A — Setup (uses WDK for Safe creation + transaction submission):
  *     1. WDK creates a Safe smart account from a seed phrase
  *     2. A simulated passkey (P-256) credential is generated
  *     3. abstractionkit builds meta-transactions to deploy the WebAuthn
  *        verifier and add the passkey as a Safe owner
  *     4. WDK batches everything into a single UserOp (deploys Safe + adds passkey)
  *
- *   Phase B — Passkey-signed UserOp (via abstractionkit):
- *     5. abstractionkit builds an unsigned UserOperation
- *     6. CandidePaymaster sponsors the gas
- *     7. The passkey signs the UserOp (no local key needed)
- *     8. UserOp is submitted and confirmed on-chain
+ *   Phase B — Passkey-signed UserOp (uses abstractionkit directly):
+ *     WDK's sendTransaction() always signs with the EOA key, so to sign
+ *     with a passkey we use abstractionkit's manual UserOp flow:
+ *     5. Build an unsigned UserOperation
+ *     6. Sponsor gas via CandidePaymaster
+ *     7. Sign with the passkey
+ *     8. Submit to the bundler
  *
- * Libraries used:
- *   - WDK: Safe creation, initial owner setup, batched transaction submission
- *   - abstractionkit: Passkey owner management, UserOp construction, signing, submission
- *   - viem: Utility functions (hex encoding, hashing)
+ * Why two libraries?
+ *   - WDK: manages the Safe lifecycle (creation from seed phrase, deployment,
+ *     gas sponsorship, EOA-signed transactions)
+ *   - abstractionkit: provides passkey/WebAuthn support (verifier deployment,
+ *     owner management, passkey-signed UserOps, signature formatting)
  *
  * Note: This example uses a simulated WebAuthn implementation for Node.js.
  * In a real browser application, replace the WebAuthnCredentials shim with
@@ -29,7 +32,7 @@
  *
  * Required env vars (see .env.example):
  *   CHAIN_ID, NODE_URL, BUNDLER_URL, PAYMASTER_URL,
- *   ENTRY_POINT_ADDRESS, SPONSORSHIP_POLICY_ID
+ *   ENTRY_POINT_ADDRESS
  *
  * Optional env vars:
  *   SEED_PHRASE — BIP-39 seed phrase (generated if not provided)
@@ -43,9 +46,11 @@ import {
     CandidePaymaster,
     SafeAccountV0_3_0 as SafeAccount,
     SendUseroperationResponse,
+    UserOperationV7,
     WebauthnPublicKey,
     WebauthnSignatureData,
     SignerSignaturePair,
+    MetaTransaction,
 } from 'abstractionkit'
 import * as dotenv from 'dotenv'
 import { generateMnemonic, english } from 'viem/accounts'
@@ -77,6 +82,65 @@ async function waitForUserOperation(
     const bundler = new Bundler(bundlerUrl)
     const response = new SendUseroperationResponse(userOperationHash, bundler, entryPointAddress)
     return response.included()
+}
+
+/**
+ * Sign a UserOperation with a passkey and format the signature for Safe.
+ *
+ * This is the core pattern for passkey-signed UserOps:
+ *   1. Compute the EIP-712 hash of the UserOperation
+ *   2. Present the hash as a WebAuthn challenge for the passkey to sign
+ *   3. Extract the signature components (authenticatorData, clientDataFields, r, s)
+ *   4. Format them into a Safe-compatible UserOperation signature
+ *
+ * In a browser, step 2 would trigger a biometric prompt via navigator.credentials.get().
+ * Here we use the simulated WebAuthnCredentials shim.
+ */
+function signUserOperationWithPasskey(
+    userOperation: UserOperationV7,
+    chainId: bigint,
+    passkeyPublicKey: WebauthnPublicKey,
+    credentials: WebAuthnCredentials,
+    credentialRawId: ArrayBuffer,
+): string {
+    // 1. Get the EIP-712 hash — this is what the passkey signs
+    const userOpHash = SafeAccount.getUserOperationEip712Hash(
+        userOperation,
+        chainId,
+    )
+
+    // 2. Present as WebAuthn challenge (biometric prompt in a real browser)
+    const assertion = credentials.get({
+        publicKey: {
+            challenge: hexToBytes(userOpHash as `0x${string}`),
+            rpId: 'candide.dev',
+            allowCredentials: [{
+                type: 'public-key',
+                id: new Uint8Array(credentialRawId),
+            }],
+            userVerification: UserVerificationRequirement.required,
+        },
+    })
+
+    // 3. Extract signature components from the WebAuthn response
+    const signatureData: WebauthnSignatureData = {
+        authenticatorData: assertion.response.authenticatorData,
+        clientDataFields: extractClientDataFields(assertion.response),
+        rs: extractSignature(assertion.response),
+    }
+
+    // 4. Format into a Safe-compatible signature
+    const webauthnSignature = SafeAccount.createWebAuthnSignature(signatureData)
+
+    const signerSignaturePair: SignerSignaturePair = {
+        signer: passkeyPublicKey,
+        signature: webauthnSignature,
+    }
+
+    return SafeAccount.formatSignaturesToUseroperationSignature(
+        [signerSignaturePair],
+        { isInit: userOperation.nonce == 0n }
+    )
 }
 
 // ============================================================================
@@ -116,13 +180,17 @@ async function main() {
     console.log(`Bundler:  ${bundlerUrl}`)
 
     // =======================================================================
-    // PHASE A: Setup — WDK creates Safe, adds passkey as second owner
+    // PHASE A: WDK creates Safe + adds passkey as second owner
+    //
+    // WDK handles the full lifecycle here: Safe creation from seed phrase,
+    // counterfactual deployment, gas sponsorship, and EOA-signed submission.
+    // abstractionkit provides the meta-transactions for passkey setup.
     // =======================================================================
 
     // -----------------------------------------------------------------------
-    // Step 1: Initialize Safe Account via WDK
+    // Step 1: Create Safe Account via WDK
     // -----------------------------------------------------------------------
-    printSection('Phase A: Initialize Safe Account (WDK)')
+    printSection('Step 1: Create Safe Account (WDK)')
 
     const wallet = new WalletManagerEvmErc4337(seedPhrase, {
         chainId,
@@ -141,17 +209,15 @@ async function main() {
     console.log(`Safe Account: ${accountAddress}`)
 
     // -----------------------------------------------------------------------
-    // Step 2: Create Simulated Passkey
+    // Step 2: Create Passkey
     // -----------------------------------------------------------------------
-    printSection('Phase A: Create Passkey')
+    printSection('Step 2: Create Passkey')
 
     // In a browser, this would be: navigator.credentials.create(...)
-    // The simulated shim generates a real P-256 keypair.
-    const navigator = {
-        credentials: new WebAuthnCredentials(),
-    }
+    // The simulated shim generates a real P-256 keypair using Node.js crypto.
+    const credentials = new WebAuthnCredentials()
 
-    const credential = navigator.credentials.create({
+    const credential = credentials.create({
         publicKey: {
             rp: { name: 'Safe', id: 'safe.global' },
             user: {
@@ -165,53 +231,47 @@ async function main() {
     })
 
     const publicKey = extractPublicKey(credential.response)
-    const webauthPublicKey: WebauthnPublicKey = {
+    const passkeyPublicKey: WebauthnPublicKey = {
         x: publicKey.x,
         y: publicKey.y,
     }
 
-    // Derive the on-chain verifier address for this passkey
+    // The verifier address is deterministic — derived from the passkey's public key
     const passkeyVerifierAddress = SafeAccount.createWebAuthnSignerVerifierAddress(
-        webauthPublicKey.x,
-        webauthPublicKey.y,
+        passkeyPublicKey.x,
+        passkeyPublicKey.y,
     )
 
-    console.log(`Passkey public key x: ${webauthPublicKey.x}`)
-    console.log(`Passkey public key y: ${webauthPublicKey.y}`)
+    console.log(`Passkey public key x: ${passkeyPublicKey.x}`)
+    console.log(`Passkey public key y: ${passkeyPublicKey.y}`)
     console.log(`Passkey verifier:     ${passkeyVerifierAddress}`)
 
     // -----------------------------------------------------------------------
-    // Step 3: Deploy Verifier + Add Passkey as Owner (single batched UserOp)
+    // Step 3: Add Passkey as Safe Owner (single batched UserOp via WDK)
     // -----------------------------------------------------------------------
-    printSection('Phase A: Add Passkey Owner')
+    printSection('Step 3: Add Passkey Owner')
 
-    // Build two MetaTransactions, batched into a single UserOp:
-    // 1. Deploy the WebAuthn signer verifier contract for this passkey
-    // 2. Add the verifier address as a Safe owner (threshold stays at 1)
-    const deployVerifierTx = SafeAccount.createDeployWebAuthnVerifierMetaTransaction(
-        webauthPublicKey.x,
-        webauthPublicKey.y,
+    // abstractionkit builds the meta-transactions, WDK submits them.
+    // Two things happen in one UserOp:
+    //   1. Deploy the on-chain P-256 signature verifier for this passkey
+    //   2. Register the verifier address as a Safe owner (threshold stays at 1)
+    const deployVerifierTx: MetaTransaction = SafeAccount.createDeployWebAuthnVerifierMetaTransaction(
+        passkeyPublicKey.x,
+        passkeyPublicKey.y,
     )
 
     const safeAccount = new SafeAccount(accountAddress)
-    const addOwnerTx = safeAccount.createStandardAddOwnerWithThresholdMetaTransaction(
+    const addOwnerTx: MetaTransaction = safeAccount.createStandardAddOwnerWithThresholdMetaTransaction(
         passkeyVerifierAddress,
-        1, // threshold stays at 1 — either owner can sign
+        1, // threshold stays at 1 — either owner can sign independently
     )
 
-    console.log('Batching: deploy verifier + add passkey owner')
-    console.log('Submitting via WDK (single UserOp, deploys Safe + adds passkey)...')
+    console.log('Submitting via WDK (single UserOp: deploy Safe + deploy verifier + add owner)...')
 
-    // WDK batches both into one UserOp. Since threshold is 1 and the WDK EOA
-    // is the sole owner, one signature suffices. If the Safe hasn't been deployed
-    // yet, WDK handles deployment as part of this first UserOp.
+    // WDK batches both meta-transactions into one UserOp. If the Safe hasn't
+    // been deployed yet (counterfactual), WDK deploys it as part of this UserOp.
     const setupResult = await account.sendTransaction([deployVerifierTx, addOwnerTx])
     console.log(`UserOp hash: ${setupResult.hash}`)
-
-    // -----------------------------------------------------------------------
-    // Step 4: Wait for Confirmation + Verify
-    // -----------------------------------------------------------------------
-    printSection('Phase A: Verify Setup')
 
     console.log('Waiting for on-chain confirmation...')
     const setupReceipt = await waitForUserOperation(setupResult.hash, bundlerUrl, entryPointAddress)
@@ -223,7 +283,7 @@ async function main() {
 
     // Verify the passkey was added as an owner
     const owners = await safeAccount.getOwners(nodeUrl)
-    console.log(`Owners (${owners.length}):`)
+    console.log(`\nOwners (${owners.length}):`)
     for (const owner of owners) {
         const label = owner.toLowerCase() === passkeyVerifierAddress.toLowerCase()
             ? ' (passkey)'
@@ -232,39 +292,39 @@ async function main() {
     }
 
     // =======================================================================
-    // PHASE B: Send UserOp signed by passkey only (via abstractionkit)
+    // PHASE B: Send a UserOp signed only by the passkey
+    //
+    // WDK's sendTransaction() always signs with the EOA key internally,
+    // so to sign with a passkey we use abstractionkit's manual UserOp flow:
+    // build → sponsor → sign → submit
     // =======================================================================
 
     // -----------------------------------------------------------------------
-    // Step 5: Build UserOperation
+    // Step 4: Build + Sponsor UserOperation
     // -----------------------------------------------------------------------
-    printSection('Phase B: Build Passkey-Signed UserOp')
+    printSection('Step 4: Build Passkey-Signed UserOp')
 
-    // A simple no-op transaction — replace with any contract call.
-    const transaction = {
+    // A simple 0-value call to self — replace with any contract interaction.
+    const transaction: MetaTransaction = {
         to: accountAddress,
         value: 0n,
-        data: '0x' as string,
+        data: '0x',
     }
 
-    console.log('Building UserOperation via abstractionkit...')
-
-    // createUserOperation handles nonce, gas estimation, and calldata encoding.
-    // expectedSigners tells the gas estimator what dummy signatures to use.
+    // Build the unsigned UserOp. expectedSigners tells the gas estimator
+    // to use a WebAuthn dummy signature (different size than ECDSA).
+    console.log('Building UserOperation...')
     let userOperation = await safeAccount.createUserOperation(
         [transaction],
         nodeUrl,
         bundlerUrl,
         {
-            expectedSigners: [webauthPublicKey],
+            expectedSigners: [passkeyPublicKey],
         },
     )
 
-    // -----------------------------------------------------------------------
-    // Step 6: Sponsor Gas via Paymaster
-    // -----------------------------------------------------------------------
+    // Sponsor gas via Candide paymaster (same service WDK uses internally)
     console.log('Requesting paymaster sponsorship...')
-
     const paymaster = new CandidePaymaster(paymasterUrl)
     const [sponsoredUserOp] = await paymaster.createSponsorPaymasterUserOperation(
         userOperation,
@@ -274,60 +334,20 @@ async function main() {
     userOperation = sponsoredUserOp
 
     // -----------------------------------------------------------------------
-    // Step 7: Sign with Passkey
+    // Step 5: Sign with Passkey + Submit
     // -----------------------------------------------------------------------
-    printSection('Phase B: Sign with Passkey')
+    printSection('Step 5: Sign + Submit')
 
-    // Get the EIP-712 hash that needs to be signed
-    const userOpHash = SafeAccount.getUserOperationEip712Hash(
+    userOperation.signature = signUserOperationWithPasskey(
         userOperation,
         BigInt(chainId),
+        passkeyPublicKey,
+        credentials,
+        credential.rawId,
     )
-
-    console.log(`UserOp EIP-712 hash: ${userOpHash}`)
-
-    // Simulate passkey authentication (biometric prompt in a real browser)
-    const assertion = navigator.credentials.get({
-        publicKey: {
-            challenge: hexToBytes(userOpHash as `0x${string}`),
-            rpId: 'safe.global',
-            allowCredentials: [{
-                type: 'public-key',
-                id: new Uint8Array(credential.rawId),
-            }],
-            userVerification: UserVerificationRequirement.required,
-        },
-    })
-
-    // Extract signature components and format for Safe verification
-    const webauthnSignatureData: WebauthnSignatureData = {
-        authenticatorData: assertion.response.authenticatorData,
-        clientDataFields: extractClientDataFields(assertion.response),
-        rs: extractSignature(assertion.response),
-    }
-
-    const webauthnSignature = SafeAccount.createWebAuthnSignature(webauthnSignatureData)
-
-    const signerSignaturePair: SignerSignaturePair = {
-        signer: webauthPublicKey,
-        signature: webauthnSignature,
-    }
-
-    // Pack the signature into the UserOperation
-    userOperation.signature = SafeAccount.formatSignaturesToUseroperationSignature(
-        [signerSignaturePair],
-        { isInit: userOperation.nonce == 0n }
-    )
-
     console.log('Passkey signature applied')
 
-    // -----------------------------------------------------------------------
-    // Step 8: Submit and Confirm
-    // -----------------------------------------------------------------------
-    printSection('Phase B: Submit UserOp')
-
     console.log('Sending UserOperation...')
-
     const sendResponse = await safeAccount.sendUserOperation(userOperation, bundlerUrl)
 
     console.log(`UserOp hash: ${sendResponse.userOperationHash}`)
