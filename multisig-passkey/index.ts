@@ -6,10 +6,11 @@
  *
  * Flow:
  *   Phase A — Setup (via WDK, threshold stays at 1):
- *     1. WDK creates a Safe smart account from a seed phrase
+ *     1. WDK creates and deploys a Safe smart account from a seed phrase
  *     2. A simulated passkey (P-256) credential is generated
- *     3. WebAuthn signer verifier contract is deployed on-chain
- *     4. Passkey is added as a second Safe owner (threshold stays at 1)
+ *     3. Passkey is added as a second Safe owner via abstractionkit's
+ *        createAddOwnerWithThresholdMetaTransactions (deploys verifier + adds owner)
+ *     4. Threshold stays at 1 — either owner can sign independently
  *
  *   Phase B — Passkey-signed UserOp (via abstractionkit):
  *     5. abstractionkit builds an unsigned UserOperation
@@ -96,7 +97,7 @@ async function main() {
 
     const requiredEnvVars = [
         'CHAIN_ID', 'NODE_URL', 'BUNDLER_URL', 'PAYMASTER_URL',
-        'ENTRY_POINT_ADDRESS', 'SPONSORSHIP_POLICY_ID',
+        'ENTRY_POINT_ADDRESS',
     ]
     const missing = requiredEnvVars.filter(v => !process.env[v])
     if (missing.length > 0) {
@@ -169,48 +170,55 @@ async function main() {
         y: publicKey.y,
     }
 
-    // Derive the on-chain verifier address for this passkey
-    const passkeyVerifierAddress = SafeAccount.createWebAuthnSignerVerifierAddress(
-        webauthPublicKey.x,
-        webauthPublicKey.y,
-    )
-
     console.log(`Passkey public key x: ${webauthPublicKey.x}`)
     console.log(`Passkey public key y: ${webauthPublicKey.y}`)
-    console.log(`Passkey verifier:     ${passkeyVerifierAddress}`)
 
     // -----------------------------------------------------------------------
-    // Step 3: Deploy Verifier + Add Passkey as Owner (batched)
+    // Step 3: Deploy Safe
+    // -----------------------------------------------------------------------
+    printSection('Phase A: Deploy Safe')
+
+    // The Safe must be deployed before we can add the passkey owner, because
+    // createAddOwnerWithThresholdMetaTransactions queries the chain for current
+    // owners. WDK deploys the Safe on the first sendTransaction call.
+    console.log('Deploying Safe (first UserOp)...')
+    const deployResult = await account.sendTransaction({
+        to: accountAddress,
+        value: 0n,
+        data: '0x',
+    })
+    console.log(`UserOp hash: ${deployResult.hash}`)
+
+    console.log('Waiting for on-chain confirmation...')
+    const deployReceipt = await waitForUserOperation(deployResult.hash, bundlerUrl, entryPointAddress)
+
+    if (!deployReceipt.success) {
+        throw new Error(`Deploy UserOp failed. Tx: ${deployReceipt.receipt.transactionHash}`)
+    }
+    console.log(`Safe deployed: ${deployReceipt.receipt.transactionHash}`)
+
+    // -----------------------------------------------------------------------
+    // Step 4: Add Passkey as Owner
     // -----------------------------------------------------------------------
     printSection('Phase A: Add Passkey Owner')
 
-    // Build the two MetaTransactions:
-    // 1. Deploy the WebAuthn signer verifier contract for this passkey's public key
-    // 2. Add the verifier address as a Safe owner (threshold stays at 1)
-    const deployVerifierTx = SafeAccount.createDeployWebAuthnVerifierMetaTransaction(
-        webauthPublicKey.x,
-        webauthPublicKey.y,
-    )
-
-    // Use createStandardAddOwnerWithThresholdMetaTransaction which takes
-    // a plain address and doesn't query the chain — works even if the Safe
-    // is not yet deployed (counterfactual).
     const safeAccount = new SafeAccount(accountAddress)
-    const addOwnerTx = safeAccount.createStandardAddOwnerWithThresholdMetaTransaction(
-        passkeyVerifierAddress,
+
+    // createAddOwnerWithThresholdMetaTransactions handles the full WebAuthn
+    // setup: deploys the signer verifier contract and adds it as a Safe owner.
+    const addPasskeyOwnerTxs = await safeAccount.createAddOwnerWithThresholdMetaTransactions(
+        webauthPublicKey,
         1, // threshold stays at 1 — either owner can sign
+        { nodeRpcUrl: nodeUrl },
     )
 
-    console.log('Batching: deploy verifier + add passkey owner')
-    console.log('Submitting via WDK (threshold is still 1)...')
+    console.log('Adding passkey as second owner...')
 
-    // WDK batches both into a single UserOp. Since threshold is 1 and the
-    // WDK EOA is the sole owner at this point, one signature suffices.
-    const setupResult = await account.sendTransaction([deployVerifierTx, addOwnerTx])
+    const setupResult = await account.sendTransaction(addPasskeyOwnerTxs)
     console.log(`UserOp hash: ${setupResult.hash}`)
 
     // -----------------------------------------------------------------------
-    // Step 4: Wait for Confirmation + Verify
+    // Step 5: Wait for Confirmation + Verify
     // -----------------------------------------------------------------------
     printSection('Phase A: Verify Setup')
 
@@ -223,6 +231,10 @@ async function main() {
     console.log(`Confirmed: ${setupReceipt.receipt.transactionHash}`)
 
     // Verify the passkey was added as an owner
+    const passkeyVerifierAddress = SafeAccount.createWebAuthnSignerVerifierAddress(
+        webauthPublicKey.x,
+        webauthPublicKey.y,
+    )
     const owners = await safeAccount.getOwners(nodeUrl)
     console.log(`Owners (${owners.length}):`)
     for (const owner of owners) {
@@ -317,6 +329,7 @@ async function main() {
     // Pack the signature into the UserOperation
     userOperation.signature = SafeAccount.formatSignaturesToUseroperationSignature(
         [signerSignaturePair],
+        { isInit: userOperation.nonce == 0n }
     )
 
     console.log('Passkey signature applied')
