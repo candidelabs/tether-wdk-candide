@@ -18,6 +18,7 @@
   "dependencies": {
     "@tetherto/wdk-wallet-evm-erc-4337": "^1.0.0-beta.5",
     "abstractionkit": "^0.2.30",
+    "cbor": "^10.0.12",
     "dotenv": "^17.3.1",
     "safe-recovery-service-sdk": "^0.0.4"
   }
