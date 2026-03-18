@@ -9,7 +9,8 @@
     "setup-alerts": "npx tsx recovery/shared/setup-alerts/index.ts",
     "cancel-recovery": "npx tsx recovery/shared/cancel-recovery/index.ts",
     "send-userop-sponsored": "npx tsx send-userop/01-sponsored-gas/index.ts",
-    "send-userop-erc20-gas": "npx tsx send-userop/02-erc20-gas/index.ts"
+    "send-userop-erc20-gas": "npx tsx send-userop/02-erc20-gas/index.ts",
+    "send-userop-passkey-multisig": "npx tsx multisig-passkey/index.ts"
   },
   "devDependencies": {
     "tsx": "^4.21.0",
