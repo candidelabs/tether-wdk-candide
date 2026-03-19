@@ -66,12 +66,16 @@ if (balance === 0n) {
     console.log(`Updated balance: ${Number(balanceAfter) / 1e6} USDT`)
 }
 
-// Send a no-op transaction — gas is deducted from the USDT balance
-const result = await account.sendTransaction({
-    to: accountAddress,
-    value: 0n,
-    data: '0x',
-})
+const recipient = accountAddress
+const transferAmount = 1_000000n // 1 USDT
+
+console.log(`\nTransferring ${Number(transferAmount) / 1e6} USDT to ${recipient}`)
+
+const { fee } = await account.quoteTransfer({ token: paymasterTokenAddress, recipient, amount: transferAmount })
+console.log(`Estimated gas fee: ${Number(fee) / 1e6} USDT`)
+
+// Transfer USDT — gas is deducted from the USDT balance
+const result = await account.transfer({ token: paymasterTokenAddress, recipient, amount: transferAmount })
 
 console.log(`UserOp hash: ${result.hash}`)
 console.log('Waiting for confirmation...')
