@@ -59,7 +59,11 @@ async function waitForUserOperation(
 ) {
     const bundler = new Bundler(bundlerUrl)
     const response = new SendUseroperationResponse(userOperationHash, bundler, entryPointAddress)
-    return response.included()
+    const receipt = await response.included()
+    if (receipt == null) {
+        throw new Error(`UserOp ${userOperationHash} not found before timeout`)
+    }
+    return receipt
 }
 
 function printSection(title: string) {

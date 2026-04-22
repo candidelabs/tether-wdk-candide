@@ -83,6 +83,9 @@ console.log('Waiting for confirmation...')
 const bundler = new Bundler(bundlerUrl)
 const response = new SendUseroperationResponse(result.hash, bundler, entryPointAddress)
 const receipt = await response.included()
+if (receipt == null) {
+    throw new Error(`UserOp ${result.hash} not found before timeout`)
+}
 
 if (!receipt.success) {
     throw new Error(`UserOperation reverted. Tx: ${receipt.receipt.transactionHash}`)
