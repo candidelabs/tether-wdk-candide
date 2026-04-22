@@ -223,7 +223,7 @@ async function main() {
 
     const credential = credentials.create({
         publicKey: {
-            rp: { name: 'Safe', id: 'safe.global' },
+            rp: { name: 'Candide', id: 'candide.dev' },
             user: {
                 id: hexToBytes(keccak256(toBytes('passkey-demo'))),
                 name: 'passkey-demo',
