@@ -1,6 +1,6 @@
 # WDK + Candide Integration Examples
 
-Reference examples for integrating [Candide](https://candide.dev) with [WDK](https://github.com/tetherto/lib-wallet) to build ERC-4337 Smart Account wallets.
+Reference examples for integrating [Candide](https://candide.dev) with [WDK](https://github.com/tetherto/lib-wallet) to build ERC-4337 Smart Account wallets and gasless Solana wallets.
 
 ## Getting Started
 
@@ -23,6 +23,16 @@ Credentials available from [dashboard.candide.dev](https://dashboard.candide.dev
 | `send-userop/02-erc20-gas` | ERC-20 (USDT) — gas deducted from token balance | `npm run send-userop-erc20-gas` |
 
 > Get test USDT on Sepolia at [dashboard.candide.dev/faucet](https://dashboard.candide.dev/faucet)
+
+### Solana Gasless Transfer
+
+Send an SPL token transfer on Solana mainnet with the network fee paid in USDT. The account holds no SOL: Candide's Solana Paymaster, a hosted [Kora](https://solana.com/docs/tools/kora) endpoint, acts as fee payer and collects the fee in USDT inside the same transaction.
+
+| Script | Gas mode | Command |
+|--------|----------|---------|
+| `solana-gasless/01-usdt-gas` | USDT (SPL): fee deducted from token balance | `npm run solana-transfer-usdt-gas` |
+
+> Mainnet USDT is the only supported fee token for now. The account needs a small USDT balance to run the example (0.5 USDT is plenty).
 
 ### Passkey Multisig
 
