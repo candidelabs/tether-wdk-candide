@@ -10,14 +10,18 @@
     "cancel-recovery": "npx tsx recovery/shared/cancel-recovery/index.ts",
     "send-userop-sponsored": "npx tsx send-userop/01-sponsored-gas/index.ts",
     "send-userop-erc20-gas": "npx tsx send-userop/02-erc20-gas/index.ts",
-    "send-userop-passkey-multisig": "npx tsx multisig-passkey/index.ts"
+    "send-userop-passkey-multisig": "npx tsx multisig-passkey/index.ts",
+    "solana-transfer-usdt-gas": "npx tsx solana-gasless/01-usdt-gas/index.ts"
   },
   "devDependencies": {
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@solana/kit": "^6.1.0",
+    "@solana/kora": "^0.2.1",
     "@tetherto/wdk-wallet-evm-erc-4337": "^1.0.0-beta.5",
+    "@tetherto/wdk-wallet-solana-gasless": "^1.0.0-beta.1",
     "abstractionkit": "^0.3.2",
     "cbor": "^10.0.12",
     "dotenv": "^17.3.1",
